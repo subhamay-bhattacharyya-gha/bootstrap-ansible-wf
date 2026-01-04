@@ -1,0 +1,186 @@
+name: Reusable - Bootstrap Ansible with Cloud OIDC
+
+on:
+  workflow_call:
+    inputs:
+      cloud-provider:
+        description: "Target cloud provider (aws, gcp, azure)"
+        required: true
+        type: string
+      release-tag:
+        description: "Git release tag to check out. If omitted, the latest commit on the default branch is used."
+        required: false
+        type: string
+        default: ""
+      python-version:
+        description: "Python version for installing ansible"
+        required: false
+        type: string
+        default: "3.12"
+      # AWS Authentication Inputs
+      aws-region:
+        description: "AWS region for authentication. Required when cloud-provider is 'aws'."
+        required: false
+        type: string
+      azure-audience:
+        description: "OIDC audience for Azure token exchange"
+        required: false
+        type: string
+        default: "api://AzureADTokenExchange"
+    secrets:
+      # HCP Terraform Cloud Secret
+      tfc-token:
+        description: "HCP Terraform Cloud API token. Required when backend-type is 'remote'."
+        required: false
+      # AWS Authentication Secret
+      aws-role-to-assume:
+        description: "AWS IAM role ARN to assume. Required when cloud-provider is 'aws'."
+        required: false
+      # GCP Authentication Secrets
+      gcp-wif-provider:
+        description: "GCP Workload Identity Federation provider. Required when cloud-provider is 'gcp'."
+        required: false
+      gcp-service-account:
+        description: "GCP service account email for authentication. Required when cloud-provider is 'gcp'."
+        required: false
+      # Azure Authentication Secrets
+      azure-client-id:
+        description: "Azure client ID for authentication. Required when cloud-provider is 'azure'."
+        required: false
+      azure-tenant-id:
+        description: "Azure tenant ID for authentication. Required when cloud-provider is 'azure'."
+        required: false
+      azure-subscription-id:
+        description: "Azure subscription ID for authentication. Required when cloud-provider is 'azure'."
+        required: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print Inputs
+        run: |
+          echo "=== Workflow Inputs ==="
+          echo "Cloud Provider: ${{ inputs.cloud-provider }}"
+          echo "Python Version: ${{ inputs.python-version }}"
+          echo "AWS Region: ${{ inputs.aws-region }}"
+          echo "Azure Audience: ${{ inputs.azure-audience }}"
+          echo "TFC Token: ${{ secrets.tfc-token && '[PROVIDED]' || '[NOT PROVIDED]' }}"
+          echo "AWS Role to Assume: ${{ secrets.aws-role-to-assume && '[PROVIDED]' || '[NOT PROVIDED]' }}"
+          echo "GCP WIF Provider: ${{ secrets.gcp-wif-provider && '[PROVIDED]' || '[NOT PROVIDED]' }}"
+          echo "GCP Service Account: ${{ secrets.gcp-service-account && '[PROVIDED]' || '[NOT PROVIDED]' }}"
+          echo "Azure Client ID: ${{ secrets.azure-client-id && '[PROVIDED]' || '[NOT PROVIDED]' }}"
+          echo "Azure Tenant ID: ${{ secrets.azure-tenant-id && '[PROVIDED]' || '[NOT PROVIDED]' }}"
+          echo "Azure Subscription ID: ${{ secrets.azure-subscription-id && '[PROVIDED]' || '[NOT PROVIDED]' }}"
+          echo "======================="
+
+      - name: Validate Cloud Provider
+        run: |
+          if [[ "${{ inputs.cloud-provider }}" != "aws" && "${{ inputs.cloud-provider }}" != "gcp" && "${{ inputs.cloud-provider }}" != "azure" ]]; then
+            echo "Error: Invalid cloud provider '${{ inputs.cloud-provider }}'. Must be one of: aws, gcp, azure"
+            exit 1
+          fi
+          echo "Valid cloud provider: ${{ inputs.cloud-provider }}"
+
+      # Determine checkout reference
+      #############################################
+      - name: Set Checkout Ref
+        id: set-ref
+        shell: bash
+        run: |
+          if [[ -n "${{ inputs.release-tag }}" ]]; then
+            echo "ref=${{ inputs.release-tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "ref=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+          fi
+
+      # Checkout repo and setup Terraform
+      #############################################
+      - name: Checkout Repo
+        id: checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.set-ref.outputs.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Install Ansible
+        run: |
+          python -m pip install --upgrade pip
+          pip install ansible
+
+      # -------------------------
+      # Ensure Cloud CLIs are installed
+      # -------------------------
+      # AWS CLI (install if missing)
+      - name: AWS | Ensure AWS CLI exists
+        if: ${{ inputs.cloud-provider == 'aws' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v aws >/dev/null 2>&1; then
+            aws --version
+          else
+            curl -sS "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o awscliv2.zip
+            unzip -q awscliv2.zip
+            sudo ./aws/install
+            aws --version
+          fi
+
+      # Azure CLI (install if missing)
+      - name: Azure | Ensure Azure CLI exists
+        if: ${{ inputs.cloud-provider == 'azure' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v az >/dev/null 2>&1; then
+            az version
+          else
+            curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+            az version
+          fi
+
+      # -------------------------
+      # AWS OIDC setup
+      # -------------------------
+      - name: AWS | Configure credentials via OIDC
+        if: ${{ inputs.cloud-provider == 'aws' }}
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ secrets.aws-role-to-assume }}
+          aws-region: ${{ inputs.aws-region }}
+
+      # -------------------------
+      # Azure OIDC setup
+      # -------------------------
+      - name: Azure | Get federated token for az login
+        if: ${{ inputs.cloud-provider == 'azure' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOKEN="$(curl -sSL \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${{ inputs.azure-audience }}" | \
+            python -c "import sys, json; print(json.load(sys.stdin)['value'])")"
+          echo "AZURE_FEDERATED_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+
+      # -------------------------
+      # GCP OIDC setup
+      # -------------------------
+      - name: GCP | Auth via Workload Identity Federation
+        if: ${{ inputs.cloud-provider == 'gcp' }}
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.gcp-wif-provider }}
+          service_account: ${{ secrets.gcp-service-account }}
+
+      - name: GCP | Setup gcloud
+        if: ${{ inputs.cloud-provider == 'gcp' }}
+        uses: google-github-actions/setup-gcloud@v2
