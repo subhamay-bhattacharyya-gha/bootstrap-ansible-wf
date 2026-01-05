@@ -183,4 +183,4 @@ jobs:
 
       - name: GCP | Setup gcloud
         if: ${{ inputs.cloud-provider == 'gcp' }}
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@v3
