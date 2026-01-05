@@ -36,7 +36,6 @@ This reusable workflow sets up a complete Ansible environment with cloud provide
 
 | Name | Description | Required |
 |------|-------------|----------|
-| `tfc-token` | HCP Terraform Cloud API token. Required when backend-type is 'remote'. | No |
 | `aws-role-to-assume` | AWS IAM role ARN to assume. Required when cloud-provider is 'aws'. | No |
 | `gcp-wif-provider` | GCP Workload Identity Federation provider. Required when cloud-provider is 'gcp'. | No |
 | `gcp-service-account` | GCP service account email for authentication. Required when cloud-provider is 'gcp'. | No |
