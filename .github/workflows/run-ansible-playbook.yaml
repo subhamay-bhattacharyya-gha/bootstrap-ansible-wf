@@ -184,6 +184,18 @@ jobs:
             python -c "import sys, json; print(json.load(sys.stdin)['value'])")"
           echo "AZURE_FEDERATED_TOKEN=$TOKEN" >> "$GITHUB_ENV"
 
+      - name: Azure | Login with OIDC
+        if: ${{ inputs.cloud-provider == 'azure' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          az login \
+            --service-principal \
+            --username "${{ secrets.azure-client-id }}" \
+            --tenant "${{ secrets.azure-tenant-id }}" \
+            --federated-token "$AZURE_FEDERATED_TOKEN"
+          az account set --subscription "${{ secrets.azure-subscription-id }}"
+
       # -------------------------
       # GCP OIDC setup
       # -------------------------
