@@ -226,9 +226,9 @@ jobs:
       # -------------------------
       - name: Run playbook
         run: |
-          if [[ -n "${{ inputs.ansible-extra-vars }}" ]]; then
-            ansible-playbook ${{ inputs.ansible-playbook-path }} \
-              --extra-vars "${{ inputs.ansible-extra-vars }}"
+          if [ -n "${{ inputs.ansible-extra-vars }}" ]; then
+            ansible-playbook "${{ inputs.ansible-playbook-path }}" \
+              --extra-vars '${{ inputs.ansible-extra-vars }}'
           else
-            ansible-playbook ${{ inputs.ansible-playbook-path }}
+            ansible-playbook "${{ inputs.ansible-playbook-path }}"
           fi
