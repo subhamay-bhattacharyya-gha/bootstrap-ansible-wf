@@ -254,8 +254,8 @@ jobs:
           |----------|-----|-------|
           EOF
             
-            # Parse and display deployment variables
-            python3 << 'PYTHON_SCRIPT' >> $GITHUB_STEP_SUMMARY
+            # Parse and display deployment variables using a different approach
+            python3 -c "
           import json
           import sys
           
@@ -263,19 +263,19 @@ jobs:
           with open('$EXTRA_VARS_FILE', 'r') as f:
               data = json.load(f)
           
-          def print_nested_vars(obj, prefix="", category=""):
+          def print_nested_vars(obj, prefix='', category=''):
               for key, value in obj.items():
                   if isinstance(value, dict):
-                      print_nested_vars(value, f"{prefix}{key}.", key.title())
+                      print_nested_vars(value, f'{prefix}{key}.', key.title())
                   else:
-                      display_key = f"{prefix}{key}" if prefix else key
-                      display_category = category if category else "General"
+                      display_key = f'{prefix}{key}' if prefix else key
+                      display_category = category if category else 'General'
                       # Handle empty values
-                      display_value = str(value) if value != "" else "*Not specified*"
-                      print(f"| {display_category} | `{display_key}` | {display_value} |")
+                      display_value = str(value) if value != '' else '*Not specified*'
+                      print(f'| {display_category} | \`{display_key}\` | {display_value} |')
           
           print_nested_vars(data)
-          PYTHON_SCRIPT
+          " >> $GITHUB_STEP_SUMMARY
             
             # Add raw JSON section
             cat >> $GITHUB_STEP_SUMMARY << 'EOF'
@@ -297,7 +297,7 @@ jobs:
             echo ""
             echo "📋 Parsed Variables:"
             echo "===================="
-            python3 << 'PYTHON_SCRIPT'
+            python3 -c "
           import json
           
           with open('$EXTRA_VARS_FILE', 'r') as f:
@@ -306,14 +306,14 @@ jobs:
           def print_vars(obj, indent=0):
               for key, value in obj.items():
                   if isinstance(value, dict):
-                      print("  " * indent + f"📁 {key}:")
+                      print('  ' * indent + f'📁 {key}:')
                       print_vars(value, indent + 1)
                   else:
-                      display_value = str(value) if value != "" else "⚠️  Not specified"
-                      print("  " * indent + f"🔹 {key}: {display_value}")
+                      display_value = str(value) if value != '' else '⚠️  Not specified'
+                      print('  ' * indent + f'🔹 {key}: {display_value}')
           
           print_vars(data)
-          PYTHON_SCRIPT
+          "
             
           else
             echo "❌ Invalid JSON syntax in extra variables"
