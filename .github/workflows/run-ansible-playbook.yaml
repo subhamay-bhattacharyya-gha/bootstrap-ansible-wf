@@ -93,7 +93,7 @@ jobs:
 
       - name: Validate Ansible Playbook Path
         run: |
-          if [[ ! -f "${{ inputs.ansible-playbook-path }}" ]]; then
+          if [[ ! -f "${{ github.workspace }}/${{ inputs.ansible-playbook-path }}" ]]; then
             echo "Error: Ansible playbook file '${{ inputs.ansible-playbook-path }}' does not exist"
             exit 1
           fi
@@ -193,6 +193,13 @@ jobs:
           TOKEN=$(echo "$TOKEN_JSON" | python -c 'import sys,json; print(json.load(sys.stdin)["value"])')
           PAYLOAD=$(echo "$TOKEN" | cut -d'.' -f2 | tr '_-' '/+' | awk '{print $0"=="}' | base64 -d 2>/dev/null || true)
           echo "$PAYLOAD"
+
+      - name: Debug Azure IDs (actual values)
+        if: ${{ inputs.cloud-provider == 'azure' }}
+        run: |
+          echo "AZURE_CLIENT_ID=${{ secrets.azure-client-id }}"
+          echo "AZURE_TENANT_ID=${{ secrets.azure-tenant-id }}"
+          echo "AZURE_SUBSCRIPTION_ID=${{ secrets.azure-subscription-id }}"
 
       - name: Azure | Login with OIDC
         if: ${{ inputs.cloud-provider == 'azure' }}
