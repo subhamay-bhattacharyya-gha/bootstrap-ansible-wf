@@ -226,9 +226,33 @@ jobs:
       # -------------------------
       - name: Run playbook
         run: |
+          echo "=========================================="
+          echo "Starting Ansible Playbook Execution"
+          echo "=========================================="
+          echo "Playbook: ${{ inputs.ansible-playbook-path }}"
+          echo "Extra Variables: ${{ inputs.ansible-extra-vars }}"
+          echo "=========================================="
+          
           if [ -n "${{ inputs.ansible-extra-vars }}" ]; then
+            echo "Running with extra variables..."
             ansible-playbook "${{ inputs.ansible-playbook-path }}" \
-              --extra-vars '${{ inputs.ansible-extra-vars }}'
+              --extra-vars '${{ inputs.ansible-extra-vars }}' \
+              -v
           else
-            ansible-playbook "${{ inputs.ansible-playbook-path }}"
+            echo "Running without extra variables..."
+            ansible-playbook "${{ inputs.ansible-playbook-path }}" \
+              -v
+          fi
+          
+          ANSIBLE_EXIT_CODE=$?
+          echo "=========================================="
+          echo "Ansible Playbook Execution Complete"
+          echo "Exit Code: $ANSIBLE_EXIT_CODE"
+          echo "=========================================="
+          
+          if [ $ANSIBLE_EXIT_CODE -eq 0 ]; then
+            echo "✅ Playbook executed successfully!"
+          else
+            echo "❌ Playbook execution failed!"
+            exit $ANSIBLE_EXIT_CODE
           fi
