@@ -91,14 +91,6 @@ jobs:
           fi
           echo "Valid cloud provider: ${{ inputs.cloud-provider }}"
 
-      - name: Validate Ansible Playbook Path
-        run: |
-          if [[ ! -f "${{ github.workspace }}/${{ inputs.ansible-playbook-path }}" ]]; then
-            echo "Error: Ansible playbook file '${{ inputs.ansible-playbook-path }}' does not exist"
-            exit 1
-          fi
-          echo "Valid playbook file: ${{ inputs.ansible-playbook-path }}"
-
       # Determine checkout reference
       #############################################
       - name: Set Checkout Ref
@@ -118,6 +110,14 @@ jobs:
         uses: actions/checkout@v6
         with:
           ref: ${{ steps.set-ref.outputs.ref }}
+
+      - name: Validate Ansible Playbook Path
+        run: |
+          if [[ ! -f "${{ inputs.ansible-playbook-path }}" ]]; then
+            echo "Error: Ansible playbook file '${{ inputs.ansible-playbook-path }}' does not exist"
+            exit 1
+          fi
+          echo "Valid playbook file: ${{ inputs.ansible-playbook-path }}"
 
       - name: Set up Python
         uses: actions/setup-python@v6
