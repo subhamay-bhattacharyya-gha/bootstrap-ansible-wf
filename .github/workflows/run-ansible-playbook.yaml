@@ -265,30 +265,21 @@ jobs:
           
           def print_nested_vars(obj, prefix='', category=''):
               for key, value in obj.items():
-                  if isinstance(value, dict):
-                      print_nested_vars(value, f'{prefix}{key}.', key.title())
-                  else:
-                      display_key = f'{prefix}{key}' if prefix else key
-                      display_category = category if category else 'General'
-                      # Handle empty values
-                      display_value = str(value) if value != '' else '*Not specified*'
-                      print(f'| {display_category} | \`{display_key}\` | {display_value} |')
+                  # Only process 'deployment' and 'aws' keys
+                  if key.lower() in ['deployment', 'aws']:
+                      if isinstance(value, dict):
+                          print_nested_vars(value, f'{prefix}{key}.', key.title())
+                      else:
+                          display_key = f'{prefix}{key}' if prefix else key
+                          display_category = category if category else key.title()
+                          # Handle empty values
+                          display_value = str(value) if value != '' else '*Not specified*'
+                          print(f'| {display_category} | \`{display_key}\` | {display_value} |')
           
           print_nested_vars(data)
           " >> $GITHUB_STEP_SUMMARY
             
-            # Add raw JSON section
             cat >> $GITHUB_STEP_SUMMARY << 'EOF'
-          
-          ### 📄 Raw JSON Configuration
-          ```json
-          EOF
-            
-            # Pretty print the JSON to summary
-            python3 -m json.tool "$EXTRA_VARS_FILE" >> $GITHUB_STEP_SUMMARY
-            
-            cat >> $GITHUB_STEP_SUMMARY << 'EOF'
-          ```
           
           ---
           EOF
@@ -305,12 +296,14 @@ jobs:
           
           def print_vars(obj, indent=0):
               for key, value in obj.items():
-                  if isinstance(value, dict):
-                      print('  ' * indent + f'📁 {key}:')
-                      print_vars(value, indent + 1)
-                  else:
-                      display_value = str(value) if value != '' else '⚠️  Not specified'
-                      print('  ' * indent + f'🔹 {key}: {display_value}')
+                  # Only process 'deployment' and 'aws' keys for console output
+                  if key.lower() in ['deployment', 'aws']:
+                      if isinstance(value, dict):
+                          print('  ' * indent + f'📁 {key}:')
+                          print_vars(value, indent + 1)
+                      else:
+                          display_value = str(value) if value != '' else '⚠️  Not specified'
+                          print('  ' * indent + f'🔹 {key}: {display_value}')
           
           print_vars(data)
           "
