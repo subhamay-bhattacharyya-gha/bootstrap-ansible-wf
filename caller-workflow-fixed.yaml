@@ -1,0 +1,72 @@
+name: Deploy Cloud Resume Website
+run-name: >
+  Deploy resume to ${{ github.event.inputs['cloud-provider'] }} by ${{ github.actor }} on ${{ github.ref_name }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      cloud-provider:
+        description: "Choose the cloud provider"
+        required: true
+        type: choice
+        options:
+          - aws
+          - gcp
+          - azure
+        default: aws
+      s3-bucket-name:
+        description: "AWS Target S3 bucket"
+        required: false
+        type: string
+        default: "subhamay-crc-website"
+      cloudfront-distribution-id:
+        description: "AWS CloudFront distribution ID"
+        required: false
+        type: string
+        default: ""
+      google-cloud-storage-bucket:
+        description: "Google Cloud Storage bucket name"
+        required: false
+        type: string
+        default: ""
+      azure-storage-account-name:
+        description: "Azure Storage account name"
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  run-playbook:
+    uses: subhamay-bhattacharyya-gha/run-ansible-playbook-wf/.github/workflows/run-ansible-playbook.yaml@feature/GHA-0006-add-step-to-run-ansible-p
+    with:
+      cloud-provider: ${{ inputs.cloud-provider }}
+      aws-region: us-east-1
+      python-version: ${{ vars.PYTHON_VERSION || '3.12' }}
+      ansible-extra-vars: |
+        {
+          "deployment": {
+            "cloud_provider": "${{ inputs.cloud-provider }}",
+            "deployment_id": "${{ github.run_id }}",
+            "git_commit": "${{ github.sha }}",
+            "deployed_by": "${{ github.actor }}",
+            "branch": "${{ github.ref_name }}"
+          },
+          "aws": {
+            "s3_bucket_name": "${{ inputs.s3-bucket-name }}",
+            "cloudfront_distribution_id": "${{ inputs.cloudfront-distribution-id }}"
+          },
+          "gcp": {
+            "google_cloud_storage_bucket": "${{ inputs.google-cloud-storage-bucket }}"
+          },
+          "azure": {
+            "azure_storage_account_name": "${{ inputs.azure-storage-account-name }}"
+          }
+        }
+      ansible-playbook-path: "frontend/playbooks/${{ inputs.cloud-provider }}/deploy-resume.yaml"
+    secrets:
+      aws-role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+      gcp-wif-provider: ${{ secrets.GCP_WIF_PROVIDER }}
+      gcp-service-account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+      azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+      azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}

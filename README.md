@@ -27,7 +27,7 @@ This reusable workflow sets up a complete Ansible environment with cloud provide
 | `cloud-provider` | Target cloud provider (aws, gcp, azure) | Yes | — |
 | `release-tag` | Git release tag to check out. If omitted, the latest commit on the default branch is used. | No | `""` |
 | `python-version` | Python version for installing ansible | No | `"3.12"` |
-| `ansible-extra-vars` | Extra variables to pass to the Ansible playbook (e.g., "var1=value1 var2=value2" or JSON format) | No | — |
+| `ansible-extra-vars` | Extra variables to pass to the Ansible playbook. Supports multiple formats: key=value pairs, JSON, or YAML file | No | — |
 | `ansible-playbook-path` | Path to the Ansible playbook file | Yes | — |
 | `aws-region` | AWS region for authentication. Required when cloud-provider is 'aws'. | No | — |
 
@@ -44,38 +44,63 @@ This reusable workflow sets up a complete Ansible environment with cloud provide
 
 ---
 
-## Example Usage
+## Passing Multiple Variables to Ansible Playbooks
 
-### AWS Example
+The `ansible-extra-vars` input supports multiple formats for passing variables to your Ansible playbooks:
 
+### 1. Key=Value Pairs (Space Separated)
 ```yaml
-name: Run Ansible Playbook on AWS
-
-on:
-  workflow_dispatch:
-    inputs:
-      message:
-        description: 'Message to pass to playbook'
-        required: false
-        default: 'Hello from GitHub Actions!'
-
-jobs:
-  run-ansible:
-    uses: subhamay-bhattacharyya-gha/run-ansible-playbook-wf/.github/workflows/run-ansible-playbook.yaml@main
-    with:
-      cloud-provider: "aws"
-      aws-region: "us-west-2"
-      python-version: "3.11"
-      ansible-playbook-path: "deploy.yml"
-      ansible-extra-vars: "message='${{ github.event.inputs.message || 'Hello from push event!' }}' environment=production"
-    secrets:
-      aws-role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+ansible-extra-vars: "environment=production region=us-east-1 debug_mode=true instance_count=3"
 ```
 
-### Azure Example
+### 2. JSON Format
+```yaml
+ansible-extra-vars: '{"environment": "production", "region": "us-east-1", "debug_mode": true, "instance_count": 3}'
+```
+
+### 3. YAML Format (Inline)
+```yaml
+ansible-extra-vars: |
+  environment: production
+  region: us-east-1
+  debug_mode: true
+  instance_count: 3
+```
+
+### 4. From External File
+```yaml
+ansible-extra-vars: "@vars/production.yml"
+```
+
+### 5. Mixed GitHub Context Variables
+```yaml
+ansible-extra-vars: "environment=${{ github.event.inputs.environment }} commit_sha=${{ github.sha }} branch=${{ github.ref_name }}"
+```
+
+### 6. Complex Variables with Nested Objects
+```yaml
+ansible-extra-vars: |
+  {
+    "app_config": {
+      "name": "my-app",
+      "version": "${{ github.ref_name }}",
+      "environment": "production"
+    },
+    "aws_config": {
+      "region": "us-east-1",
+      "instance_type": "t3.medium"
+    }
+  }
+```
+
+---
+
+## Example Usage
+
+### AWS Example with Multiple Variables
 
 ```yaml
-name: Run Ansible Playbook on Azure
+name: Deploy Infrastructure to AWS
 
 on:
   workflow_dispatch:
@@ -84,37 +109,81 @@ on:
         description: 'Target environment'
         required: true
         default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+      instance_count:
+        description: 'Number of instances'
+        required: true
+        default: '2'
+      debug_mode:
+        description: 'Enable debug mode'
+        type: boolean
+        default: false
 
 jobs:
-  run-ansible:
+  deploy-aws:
     uses: subhamay-bhattacharyya-gha/run-ansible-playbook-wf/.github/workflows/run-ansible-playbook.yaml@main
     with:
-      cloud-provider: "azure"
-      ansible-playbook-path: "azure-deploy.yml"
-      ansible-extra-vars: "environment=${{ github.event.inputs.environment }} region=eastus"
+      cloud-provider: "aws"
+      aws-region: "us-west-2"
+      ansible-playbook-path: "infrastructure/aws-deploy.yml"
+      ansible-extra-vars: |
+        {
+          "environment": "${{ github.event.inputs.environment }}",
+          "instance_count": ${{ github.event.inputs.instance_count }},
+          "debug_mode": ${{ github.event.inputs.debug_mode }},
+          "deployment_id": "${{ github.run_id }}",
+          "git_commit": "${{ github.sha }}",
+          "deployed_by": "${{ github.actor }}"
+        }
     secrets:
-      azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
-      azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-      azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      aws-role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
 ```
 
-### GCP Example
+### Azure Example with Key=Value Format
 
 ```yaml
-name: Run Ansible Playbook on GCP
+name: Deploy Application to Azure
 
 on:
   push:
     branches: [main]
 
 jobs:
-  run-ansible:
+  deploy-azure:
+    uses: subhamay-bhattacharyya-gha/run-ansible-playbook-wf/.github/workflows/run-ansible-playbook.yaml@main
+    with:
+      cloud-provider: "azure"
+      ansible-playbook-path: "deployment/azure-app.yml"
+      ansible-extra-vars: "app_name=my-webapp environment=production region=eastus resource_group=prod-rg subscription_id=${{ secrets.AZURE_SUBSCRIPTION_ID }} build_number=${{ github.run_number }}"
+    secrets:
+      azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+      azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+      azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+```
+
+### GCP Example with External Variables File
+
+```yaml
+name: Deploy to GCP with External Config
+
+on:
+  workflow_dispatch:
+    inputs:
+      config_file:
+        description: 'Configuration file to use'
+        required: true
+        default: 'vars/production.yml'
+
+jobs:
+  deploy-gcp:
     uses: subhamay-bhattacharyya-gha/run-ansible-playbook-wf/.github/workflows/run-ansible-playbook.yaml@main
     with:
       cloud-provider: "gcp"
-      release-tag: "v1.0.0"
-      ansible-playbook-path: "gcp-infrastructure.yml"
-      ansible-extra-vars: "project_id=my-gcp-project region=us-central1"
+      ansible-playbook-path: "gcp/infrastructure.yml"
+      ansible-extra-vars: "@${{ github.event.inputs.config_file }} deployment_timestamp=$(date +%s) git_ref=${{ github.ref }}"
     secrets:
       gcp-wif-provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
       gcp-service-account: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}

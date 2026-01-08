@@ -61,6 +61,12 @@ jobs:
   run:
     runs-on: ubuntu-latest
     steps:
+      - name: Set Execution Timestamp
+        id: timestamp
+        run: |
+          echo "execution_time=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> $GITHUB_OUTPUT
+          echo "execution_epoch=$(date +%s)" >> $GITHUB_OUTPUT
+
       - name: Print Inputs
         run: |
           echo "=== Workflow Inputs ==="
@@ -224,6 +230,114 @@ jobs:
       # -------------------------
       # Run Ansible Playbook
       # -------------------------
+      - name: Parse and Display Extra Variables
+        if: inputs.ansible-extra-vars != ''
+        run: |
+          echo "=========================================="
+          echo "Parsing Ansible Extra Variables"
+          echo "=========================================="
+          
+          # Create temporary file for JSON processing
+          EXTRA_VARS_FILE=$(mktemp)
+          echo '${{ inputs.ansible-extra-vars }}' > "$EXTRA_VARS_FILE"
+          
+          # Validate and parse JSON
+          if python3 -m json.tool "$EXTRA_VARS_FILE" > /dev/null 2>&1; then
+            echo "✅ JSON syntax is valid"
+            
+            # Create GitHub Step Summary with table
+            cat >> $GITHUB_STEP_SUMMARY << 'EOF'
+          ## 📋 Ansible Extra Variables Summary
+          
+          ### 🔧 Deployment Configuration
+          | Category | Key | Value |
+          |----------|-----|-------|
+          EOF
+            
+            # Parse and display deployment variables
+            python3 << 'PYTHON_SCRIPT' >> $GITHUB_STEP_SUMMARY
+          import json
+          import sys
+          
+          # Read the JSON file
+          with open('$EXTRA_VARS_FILE', 'r') as f:
+              data = json.load(f)
+          
+          def print_nested_vars(obj, prefix="", category=""):
+              for key, value in obj.items():
+                  if isinstance(value, dict):
+                      print_nested_vars(value, f"{prefix}{key}.", key.title())
+                  else:
+                      display_key = f"{prefix}{key}" if prefix else key
+                      display_category = category if category else "General"
+                      # Handle empty values
+                      display_value = str(value) if value != "" else "*Not specified*"
+                      print(f"| {display_category} | `{display_key}` | {display_value} |")
+          
+          print_nested_vars(data)
+          PYTHON_SCRIPT
+            
+            # Add raw JSON section
+            cat >> $GITHUB_STEP_SUMMARY << 'EOF'
+          
+          ### 📄 Raw JSON Configuration
+          ```json
+          EOF
+            
+            # Pretty print the JSON to summary
+            python3 -m json.tool "$EXTRA_VARS_FILE" >> $GITHUB_STEP_SUMMARY
+            
+            cat >> $GITHUB_STEP_SUMMARY << 'EOF'
+          ```
+          
+          ---
+          EOF
+            
+            # Also display in console with colors
+            echo ""
+            echo "📋 Parsed Variables:"
+            echo "===================="
+            python3 << 'PYTHON_SCRIPT'
+          import json
+          
+          with open('$EXTRA_VARS_FILE', 'r') as f:
+              data = json.load(f)
+          
+          def print_vars(obj, indent=0):
+              for key, value in obj.items():
+                  if isinstance(value, dict):
+                      print("  " * indent + f"📁 {key}:")
+                      print_vars(value, indent + 1)
+                  else:
+                      display_value = str(value) if value != "" else "⚠️  Not specified"
+                      print("  " * indent + f"🔹 {key}: {display_value}")
+          
+          print_vars(data)
+          PYTHON_SCRIPT
+            
+          else
+            echo "❌ Invalid JSON syntax in extra variables"
+            echo "Please check your JSON format in the caller workflow."
+            
+            # Add error to summary
+            cat >> $GITHUB_STEP_SUMMARY << 'EOF'
+          ## ❌ Ansible Extra Variables Error
+          
+          **Invalid JSON syntax detected in extra variables.**
+          
+          Please check your JSON format in the caller workflow and ensure:
+          - No trailing commas
+          - Proper quote escaping
+          - Valid JSON structure
+          
+          ---
+          EOF
+          fi
+          
+          # Clean up
+          rm -f "$EXTRA_VARS_FILE"
+          echo "=========================================="
+
       - name: Run playbook
         id: ansible-execution
         run: |
@@ -237,12 +351,40 @@ jobs:
           # Create temporary files to capture output
           OUTPUT_FILE=$(mktemp)
           ERROR_FILE=$(mktemp)
+          EXTRA_VARS_FILE=$(mktemp)
           
+          # Handle extra variables
           if [ -n "${{ inputs.ansible-extra-vars }}" ]; then
-            echo "Running with extra variables..."
-            ansible-playbook "${{ inputs.ansible-playbook-path }}" \
-              --extra-vars '${{ inputs.ansible-extra-vars }}' \
-              -v > "$OUTPUT_FILE" 2> "$ERROR_FILE"
+            EXTRA_VARS='${{ inputs.ansible-extra-vars }}'
+            
+            # Check if it's a JSON object (starts with { and ends with })
+            if [[ "$EXTRA_VARS" =~ ^[[:space:]]*\{.*\}[[:space:]]*$ ]]; then
+              echo "Detected JSON format for extra variables"
+              echo "Validating JSON syntax..."
+              
+              # Write JSON to temporary file for validation
+              echo "$EXTRA_VARS" > "$EXTRA_VARS_FILE"
+              
+              # Validate JSON syntax
+              if python3 -m json.tool "$EXTRA_VARS_FILE" > /dev/null 2>&1; then
+                echo "✅ JSON syntax is valid"
+                echo "Running playbook with JSON extra variables..."
+                ansible-playbook "${{ inputs.ansible-playbook-path }}" \
+                  --extra-vars "@$EXTRA_VARS_FILE" \
+                  -v > "$OUTPUT_FILE" 2> "$ERROR_FILE"
+              else
+                echo "❌ Invalid JSON syntax in extra variables"
+                echo "JSON validation failed. Please check your JSON format."
+                cat "$ERROR_FILE" 2>/dev/null || echo "No additional error details available"
+                exit 1
+              fi
+            else
+              echo "Detected key=value or YAML format for extra variables"
+              echo "Running playbook with string extra variables..."
+              ansible-playbook "${{ inputs.ansible-playbook-path }}" \
+                --extra-vars "$EXTRA_VARS" \
+                -v > "$OUTPUT_FILE" 2> "$ERROR_FILE"
+            fi
           else
             echo "Running without extra variables..."
             ansible-playbook "${{ inputs.ansible-playbook-path }}" \
@@ -293,7 +435,7 @@ jobs:
           fi
           
           # Clean up temporary files
-          rm -f "$OUTPUT_FILE" "$ERROR_FILE"
+          rm -f "$OUTPUT_FILE" "$ERROR_FILE" "$EXTRA_VARS_FILE"
           
           # Exit with the original code
           exit $ANSIBLE_EXIT_CODE
@@ -307,3 +449,37 @@ jobs:
           echo "Status: ${{ steps.ansible-execution.outputs.status }}"
           echo "Exit Code: ${{ steps.ansible-execution.outputs.exit_code }}"
           echo "=========================================="
+          
+          # Add execution summary to GitHub Step Summary
+          cat >> $GITHUB_STEP_SUMMARY << 'EOF'
+          ## 🎯 Ansible Playbook Execution Results
+          
+          | Metric | Value |
+          |--------|-------|
+          | **Status** | ${{ steps.ansible-execution.outputs.status == 'success' && '✅ Success' || '❌ Failed' }} |
+          | **Exit Code** | `${{ steps.ansible-execution.outputs.exit_code }}` |
+          | **Playbook Path** | `${{ inputs.ansible-playbook-path }}` |
+          | **Cloud Provider** | `${{ inputs.cloud-provider }}` |
+          | **Python Version** | `${{ inputs.python-version }}` |
+          | **Execution Time** | `${{ steps.timestamp.outputs.execution_time }}` |
+          | **Triggered By** | `${{ github.actor }}` |
+          | **Git Reference** | `${{ github.ref_name }}` |
+          
+          EOF
+          
+          # Add output details if there are any
+          if [ "${{ steps.ansible-execution.outputs.status }}" = "failed" ]; then
+            cat >> $GITHUB_STEP_SUMMARY << 'EOF'
+          ### ❌ Error Details
+          
+          ```
+          ${{ steps.ansible-execution.outputs.stderr }}
+          ```
+          
+          EOF
+          fi
+          
+          cat >> $GITHUB_STEP_SUMMARY << 'EOF'
+          ---
+          *Generated by run-ansible-playbook workflow*
+          EOF
